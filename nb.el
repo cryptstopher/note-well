@@ -1,0 +1,111 @@
+(global-set-key "\C-cn" 'nb/create-new-note)
+(global-set-key "\C-cl" 'nb/new-linked-note)
+
+(defun nb/create-new-note ()
+  (interactive)
+  (let* ((current-time (format-time-string "%Y%m%d%H%M%S"))
+         (keyword (read-string "Keyword: "))
+         ;; Convert keyword to lowercase and replace spaces with hyphens
+         (formatted-keyword (replace-regexp-in-string " " "-" (downcase keyword)))
+         (base-dir "~/Documents/notes/") ; Specify the base directory for notes
+         (file-name (concat base-dir current-time "-" formatted-keyword ".org")))
+    
+    ;; Create and open the new file
+    (find-file file-name)
+    
+    ;; Insert template content
+    (insert "#+TITLE: " keyword "\n")
+    (insert "#+EXPORT_FILE_NAME: ~/Downloads/note"  "\n")
+    
+    ;; Save the file
+    (save-buffer)
+    
+    (message "Created new note in %s" file-name)))
+
+(defun nb/new-linked-note ()
+  "Create a new note, prompting for the keyword (used for filename/title), and replace the region with an org link to the new note using the original region text as the link text."
+  (interactive)
+  (if (use-region-p)
+      (let* ((beg (region-beginning))
+             (end (region-end))
+             (region-text (buffer-substring-no-properties beg end))
+             (keyword (read-string "Keyword for new note: "))
+             (current-time (format-time-string "%Y%m%d%H%M%S"))
+             (formatted-keyword (replace-regexp-in-string " " "-" (downcase keyword)))
+             (base-dir "~/Documents/notes/")
+             (file-name (concat base-dir current-time "-" formatted-keyword ".org")))
+        ;; Create and open the new file
+        (find-file file-name)
+        ;; Insert template content
+        (insert "#+TITLE: " keyword "\n")
+        (insert "#+EXPORT_FILE_NAME: ~/Downloads/note"  "\n")
+        (save-buffer)
+        (kill-buffer)
+        ;; Replace region with org link in original buffer
+        (let ((org-link (format "[[file:%s][%s]]" file-name region-text)))
+          (save-excursion
+            (goto-char beg)
+            (delete-region beg end)
+            (insert org-link)))
+        (message "Created new note and link: %s" file-name))
+    (message "No region selected!")))
+
+(defun nb/rewrite-note-file (file)
+  "Copy FILE to ~/Documents/notes/ with a timestamp and keyword, preserving the extension.
+Works interactively in dired."
+  (interactive "fSelect file: ")
+  (let* ((current-time (format-time-string "%Y%m%d%H%M%S"))
+         (keyword (read-string "Keyword: "))
+         (formatted-keyword (replace-regexp-in-string " " "-" (downcase keyword)))
+         (file-ext (file-name-extension file t)) ; includes the dot
+         (notes-dir (expand-file-name "~/Documents/notes/"))
+         (new-file-name (concat notes-dir current-time "-" formatted-keyword file-ext)))
+    (unless (file-directory-p notes-dir)
+      (make-directory notes-dir t))
+    (copy-file file new-file-name)
+    (find-file new-file-name)
+    (message "Created new note: %s" new-file-name)))
+
+(defun nb/note-mark-linked ()
+  "Mark files in Dired that are linked from Org files in the current directory."
+  (interactive)
+  (let* ((org-files (directory-files default-directory t "\\.org$"))
+         (linked-files
+          (delete-dups
+           (apply 'append
+                  (mapcar
+                   (lambda (org-file)
+                     (with-temp-buffer
+                       (insert-file-contents org-file)
+                       (let (results)
+                         (org-element-map (org-element-parse-buffer) 'link
+                           (lambda (link)
+                             (when (string= (org-element-property :type link) "file")
+                               (let ((path (org-element-property :path link)))
+                                 (push (expand-file-name path default-directory) results)))))
+                         results)))
+                   org-files)))))
+    (dired default-directory)
+    (dired-unmark-all-marks)
+    (save-excursion
+      (dolist (file linked-files)
+        (when (dired-goto-file file)
+          (dired-mark 1))))))
+
+(defun nb/notes-lookback ()
+  "Show files in the current directory that link to the current file in org-mode."
+  (interactive)
+  (let* ((current-file (file-name-nondirectory (or (buffer-file-name) "")))
+         (search-pattern (concat "\\[\\[file:\\(.*\\(/\\)?\\)" (regexp-quote current-file) "\\(\\]\\|::\\)"))
+         (default-directory (file-name-directory (or (buffer-file-name) default-directory)))
+         (all-files (directory-files-recursively default-directory ".*"))
+         (matching-files
+          (cl-remove-if-not
+           (lambda (file)
+             (with-temp-buffer
+               (insert-file-contents file)
+               (re-search-forward search-pattern nil t)))
+           all-files)))
+    (if matching-files
+        (dired (cons default-directory matching-files))
+      (message "No files in %s link to %s" default-directory current-file))))
