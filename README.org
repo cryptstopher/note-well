@@ -12,7 +12,7 @@ A handful of note-taking functions for Emacs.
 
 * Create new note
 
-The directory ~~/Documents/notes~~ is hard coded, but you can make that any destination in your file system.
+The directory "~/Documents/notes~" is hard coded, but you can make that any destination in your file system.
 
 #+begin_src elisp
 (defun nb/create-new-note ()
